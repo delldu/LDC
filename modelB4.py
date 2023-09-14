@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
 
 def weight_init(m):
     if isinstance(m, (nn.Conv2d,)):
@@ -23,7 +24,6 @@ def weight_init(m):
             torch.nn.init.zeros_(m.bias)
 
 class CoFusion(nn.Module):
-
     def __init__(self, in_ch, out_ch):
         super(CoFusion, self).__init__()
         self.conv1 = nn.Conv2d(in_ch, 32, kernel_size=3,
@@ -165,26 +165,29 @@ class LDC(nn.Module):
         self.up_block_2 = UpConvBlock(32, 1)
         self.up_block_3 = UpConvBlock(64, 2)
         self.up_block_4 = UpConvBlock(96, 3)# 128
-        # self.block_cat = SingleConvBlock(4, 1, stride=1, use_bs=False) # hed fusion method
         self.block_cat = CoFusion(4,4)# cats fusion method
 
 
         self.apply(weight_init)
 
-    def slice(self, tensor, slice_shape):
-        t_shape = tensor.shape
-        height, width = slice_shape
-        if t_shape[-1]!=slice_shape[-1]:
-            new_tensor = F.interpolate(
-                tensor, size=(height, width), mode='bicubic',align_corners=False)
-        else:
-            new_tensor=tensor
-        # tensor[..., :height, :width]
-        return new_tensor
+        # pdb.set_trace()
+        # torch.jit.script(self)
+
+
+    # def slice(self, tensor, slice_shape):
+    #     t_shape = tensor.shape
+    #     height, width = slice_shape
+    #     if t_shape[-1]!=slice_shape[-1]:
+    #         new_tensor = F.interpolate(
+    #             tensor, size=(height, width), mode='bicubic',align_corners=False)
+    #     else:
+    #         new_tensor=tensor
+    #     # tensor[..., :height, :width]
+    #     return new_tensor
 
     def forward(self, x):
-        assert x.ndim == 4, x.shape
-         # supose the image size is 352x352
+        # x.size() -- [1, 3, 512, 512]
+
         # Block 1
         block_1 = self.block_1(x) # [8,16,176,176]
         block_1_side = self.side_1(block_1) # 16 [8,32,88,88]
@@ -212,15 +215,17 @@ class LDC(nn.Module):
         out_2 = self.up_block_2(block_2)
         out_3 = self.up_block_3(block_3)
         out_4 = self.up_block_4(block_4)
-        # results = [out_1, out_2, out_3, out_4, out_5, out_6]
         results = [out_1, out_2, out_3, out_4]
 
         # concatenate multiscale outputs
         block_cat = torch.cat(results, dim=1)  # Bx6xHxW
         block_cat = self.block_cat(block_cat)  # Bx1xHxW
 
-        # return results
         results.append(block_cat)
+
+        # len(results) -- 5
+        # results[x].size() -- [1, 1, 512, 512]
+
         return results
 
 

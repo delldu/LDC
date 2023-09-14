@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import json
+import pdb
 
 DATASET_NAMES = [
     'BIPED',
@@ -232,6 +233,12 @@ class TestDataset(Dataset):
                  test_list=None,
                  arg=None
                  ):
+        # data_root = 'data'
+        # test_data = 'CLASSIC'
+        # mean_bgr = [103.939, 116.779, 123.68]
+        # img_height = 512
+        # img_width = 512
+        # test_list = None
         if test_data not in DATASET_NAMES:
             raise ValueError(f"Unsupported dataset: {test_data}")
 
@@ -239,17 +246,14 @@ class TestDataset(Dataset):
         self.test_data = test_data
         self.test_list = test_list
         self.args = arg
-        # self.arg = arg
-        # self.mean_bgr = arg.mean_pixel_values[0:3] if len(arg.mean_pixel_values) == 4 \
-        #     else arg.mean_pixel_values
         self.mean_bgr = mean_bgr
         self.img_height = img_height
         self.img_width = img_width
-        self.data_index = self._build_index()
+        self.data_index = self.build_index()
 
         print(f"mean_bgr: {self.mean_bgr}")
 
-    def _build_index(self):
+    def build_index(self):
         sample_indices = []
         if self.test_data == "CLASSIC":
             # for single image testing
@@ -292,8 +296,6 @@ class TestDataset(Dataset):
         return len(self.data_index[0]) if self.test_data.upper() == 'CLASSIC' else len(self.data_index)
 
     def __getitem__(self, idx):
-        # get data sample
-        # image_path, label_path = self.data_index[idx]
         if self.data_index[1] is None:
             image_path = self.data_index[0][idx] if len(self.data_index[0]) > 1 else self.data_index[0][idx - 1]
         else:
@@ -306,7 +308,7 @@ class TestDataset(Dataset):
         if self.test_data.upper() == 'BIPED':
             img_dir = os.path.join(self.data_root, 'imgs', 'test')
             gt_dir = os.path.join(self.data_root, 'edge_maps', 'test')
-        elif self.test_data.upper() == 'CLASSIC':
+        elif self.test_data.upper() == 'CLASSIC': # True
             img_dir = self.data_root
             gt_dir = None
         else:
@@ -327,44 +329,32 @@ class TestDataset(Dataset):
         return dict(images=image, labels=label, file_names=file_name, image_shape=im_shape)
 
     def transform(self, img, gt):
-        # gt[gt< 51] = 0 # test without gt discrimination
-        if self.test_data == "CLASSIC":
-            img_height = self.img_height
-            img_width = self.img_width
-            print(
-                f"actual size: {img.shape}, target size: {(img_height, img_width,)}")
-            # img = cv2.resize(img, (self.img_width, self.img_height))
+        if self.test_data == "CLASSIC": # True
+            img_height = self.img_height # 512 ?
+            img_width = self.img_width # 512 ?
+            print(f"actual size: {img.shape}, target size: {(img_height, img_width,)}")
             img = cv2.resize(img, (img_width, img_height))
             gt = None
-
-        # Make images and labels at least 512 by 512
-        elif img.shape[0] < 512 or img.shape[1] < 512:
+        elif img.shape[0] < 512 or img.shape[1] < 512: # False
             img = cv2.resize(img, (self.args.test_img_width, self.args.test_img_height))  # 512
             gt = cv2.resize(gt, (self.args.test_img_width, self.args.test_img_height))  # 512
-
-        # Make sure images and labels are divisible by 2^4=16
-        elif img.shape[0] % 16 != 0 or img.shape[1] % 16 != 0:
+        elif img.shape[0] % 16 != 0 or img.shape[1] % 16 != 0: # False
             img_width = ((img.shape[1] // 16) + 1) * 16
             img_height = ((img.shape[0] // 16) + 1) * 16
             img = cv2.resize(img, (img_width, img_height))
             gt = cv2.resize(gt, (img_width, img_height))
-        else:
+        else: # False
             img_width = self.args.test_img_width
             img_height = self.args.test_img_height
             img = cv2.resize(img, (img_width, img_height))
             gt = cv2.resize(gt, (img_width, img_height))
-        # # For FPS
-        # img = cv2.resize(img, (496,320))
-        # if self.yita is not None:
-        #     gt[gt >= self.yita] = 1
+
         img = np.array(img, dtype=np.float32)
-        # if self.rgb:
-        #     img = img[:, :, ::-1]  # RGB->BGR
         img -= self.mean_bgr
-        img = img.transpose((2, 0, 1))
+        img = img.transpose((2, 0, 1)) # HxWxC ==> CxHxW
         img = torch.from_numpy(img.copy()).float()
 
-        if self.test_data == "CLASSIC":
+        if self.test_data == "CLASSIC": # True
             gt = np.zeros((img.shape[:2]))
             gt = torch.from_numpy(np.array([gt])).float()
         else:
@@ -404,9 +394,11 @@ class BipedDataset(Dataset):
         self.crop_img = crop_img
         self.arg = arg
 
-        self.data_index = self._build_index()
+        self.data_index = self.build_index()
 
-    def _build_index(self):
+        pdb.set_trace()
+
+    def build_index(self):
         assert self.train_mode in self.train_modes, self.train_mode
         assert self.dataset_type in self.dataset_types, self.dataset_type
         assert self.data_type in self.data_types, self.data_type
@@ -493,41 +485,12 @@ class BipedDataset(Dataset):
             j = random.randint(0, i_w - crop_size)
             img = img[i:i + crop_size, j:j + crop_size]
             gt = gt[i:i + crop_size, j:j + crop_size]
-
-        # # for BIPED/MDBD
-        # if i_w> 420 and i_h>420: #before np.random.random() > 0.4
-        #     h,w = gt.shape
-        #     if np.random.random() > 0.4: #before i_w> 500 and i_h>500:
-        #
-        #         LR_img_size = crop_size #l BIPED=256, 240 200 # MDBD= 352 BSDS= 176
-        #         i = random.randint(0, h - LR_img_size)
-        #         j = random.randint(0, w - LR_img_size)
-        #         # if img.
-        #         img = img[i:i + LR_img_size , j:j + LR_img_size ]
-        #         gt = gt[i:i + LR_img_size , j:j + LR_img_size ]
-        #     else:
-        #         LR_img_size = 300#208  # l BIPED=208-352, # MDBD= 352-480- BSDS= 176-320
-        #         i = random.randint(0, h - LR_img_size)
-        #         j = random.randint(0, w - LR_img_size)
-        #         # if img.
-        #         img = img[i:i + LR_img_size, j:j + LR_img_size]
-        #         gt = gt[i:i + LR_img_size, j:j + LR_img_size]
-        #         img = cv2.resize(img, dsize=(crop_size, crop_size), )
-        #         gt = cv2.resize(gt, dsize=(crop_size, crop_size))
-
         else:
             # New addidings
             img = cv2.resize(img, dsize=(crop_size, crop_size))
             gt = cv2.resize(gt, dsize=(crop_size, crop_size))
-        # # BRIND
-        # gt[gt > 0.1] +=0.2#0.4
-        # gt = np.clip(gt, 0., 1.)
-        # for BIPED
         gt[gt > 0.2] += 0.6  # 0.5 for BIPED
         gt = np.clip(gt, 0., 1.)  # BIPED
-        # # for MDBD
-        # gt[gt > 0.3] +=0.7#0.4
-        # gt = np.clip(gt, 0., 1.)
 
         img = img.transpose((2, 0, 1))
         img = torch.from_numpy(img.copy()).float()
