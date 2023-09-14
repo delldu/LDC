@@ -44,10 +44,18 @@ def test(checkpoint_path, dataloader, model, device, output_dir, args):
             if device.type == 'cuda':
                 torch.cuda.synchronize()
 
-            # (Pdb) images.size(), images.min(), images.max()
-            # (torch.Size([1, 3, 512, 512]), tensor(-123.6800, device='cuda:0'), tensor(151.0610, device='cuda:0'))
+            # tensor [images] size: [1, 3, 512, 512], 
+            #   min: -123.68000030517578 , 
+            #   max: 151.06100463867188
 
             preds = model(images)
+            todos.debug.output_var("preds", preds)
+            # list [preds] len: 5
+            # tensor [preds[0]] size: [1, 1, 512, 512] , min: -7.049300670623779 , max: 7.8712992668151855
+            # tensor [preds[1]] size: [1, 1, 512, 512] , min: -13.446599006652832 , max: 0.9053399562835693
+            # tensor [preds[2]] size: [1, 1, 512, 512] , min: -18.81188201904297 , max: 1.7953037023544312
+            # tensor [preds[3]] size: [1, 1, 512, 512] , min: -17.774682998657227 , max: 1.6504275798797607
+            # tensor [preds[4]] size: [1, 1, 512, 512] , min: -17.566560745239258 , max: 1.7280923128128052
 
             if device.type == 'cuda':
                 torch.cuda.synchronize()

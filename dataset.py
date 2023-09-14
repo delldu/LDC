@@ -252,6 +252,8 @@ class TestDataset(Dataset):
         self.data_index = self.build_index()
 
         print(f"mean_bgr: {self.mean_bgr}")
+        pdb.set_trace()
+        
 
     def build_index(self):
         sample_indices = []

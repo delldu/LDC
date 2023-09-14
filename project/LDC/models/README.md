@@ -1,0 +1,2 @@
+d257f9fb15d927eb8f20d356cf38367a  BRIND_11_model.pth
+d257f9fb15d927eb8f20d356cf38367a  LDC.pth

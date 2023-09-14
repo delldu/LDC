@@ -1,8 +1,11 @@
 # Lightweight Dense CNN for Edge Detection
 # It has less than 1 Million parameters
+
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms as T
 import pdb
 
 def weight_init(m):
@@ -167,25 +170,23 @@ class LDC(nn.Module):
         self.up_block_4 = UpConvBlock(96, 3)# 128
         self.block_cat = CoFusion(4,4)# cats fusion method
 
+        self.bgr_normal = T.Normalize(mean=[103.939, 116.779, 123.68 ], std=[1.0, 1.0, 1.0])
 
         self.apply(weight_init)
+
+        self.load_weights()
 
         # pdb.set_trace()
         # torch.jit.script(self)
 
-
-    # def slice(self, tensor, slice_shape):
-    #     t_shape = tensor.shape
-    #     height, width = slice_shape
-    #     if t_shape[-1]!=slice_shape[-1]:
-    #         new_tensor = F.interpolate(
-    #             tensor, size=(height, width), mode='bicubic',align_corners=False)
-    #     else:
-    #         new_tensor=tensor
-    #     # tensor[..., :height, :width]
-    #     return new_tensor
-
     def forward(self, x):
+        B, C, H, W = x.size()
+        x = F.interpolate(x, size=(512, 512), mode="bilinear", align_corners=True)
+
+        # Convert RGB[0.0, 1.0] to BGR[0, 255] !!!
+        x = torch.cat([x[:, 2:3, :, :], x[:, 1:2, :, :], x[:, 0:1, :, :]], dim = 1) * 255.0
+        x = self.bgr_normal(x)
+
         # x.size() -- [1, 3, 512, 512]
 
         # Block 1
@@ -215,31 +216,40 @@ class LDC(nn.Module):
         out_2 = self.up_block_2(block_2)
         out_3 = self.up_block_3(block_3)
         out_4 = self.up_block_4(block_4)
-        results = [out_1, out_2, out_3, out_4]
+        # results = [out_1, out_2, out_3, out_4]
 
         # concatenate multiscale outputs
-        block_cat = torch.cat(results, dim=1)  # Bx6xHxW
+        block_cat = torch.cat([out_1, out_2, out_3, out_4], dim=1)  # Bx6xHxW
         block_cat = self.block_cat(block_cat)  # Bx1xHxW
 
-        results.append(block_cat)
+        out_1 = torch.sigmoid(out_1)
+        out_2 = torch.sigmoid(out_2)
+        out_3 = torch.sigmoid(out_3)
+        out_4 = torch.sigmoid(out_4)
+        block_cat = torch.sigmoid(block_cat)
 
-        # len(results) -- 5
-        # results[x].size() -- [1, 1, 512, 512]
+        output = torch.cat([out_1, out_2, out_3, out_4, block_cat], dim = 1)
 
-        return results
+        output = output.mean(dim=1, keepdim=True)
+
+        # Convert BGR to RGB !!!
+        # output is Bx1xHxW, so no need convert channels
+
+        output = F.interpolate(output, size=(H, W), mode="bilinear", align_corners=True)
+
+        output = (output - output.min())/(output.max() - output.min() + 1e-5)
+        output = (output >= 0.5).to(torch.float32)
+
+        return output
 
 
-if __name__ == '__main__':
-    batch_size = 8
-    img_height = 352
-    img_width = 352
+    def load_weights(self, model_path="models/LDC.pth"):
+        cdir = os.path.dirname(__file__)
+        checkpoint = model_path if cdir == "" else cdir + "/" + model_path
 
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
-    input = torch.rand(batch_size, 3, img_height, img_width).to(device)
-    # target = torch.rand(batch_size, 1, img_height, img_width).to(device)
-    print(f"input shape: {input.shape}")
-    model = LDC().to(device)
-    output = model(input)
-    print(f"output shapes: {[t.shape for t in output]}")
-
+        if os.path.exists(checkpoint):
+            print(f"Loading weight from {checkpoint} ...")
+            self.load_state_dict(torch.load(checkpoint))
+        else:
+            print("-" * 32, "Warnning", "-" * 32)
+            print(f"Weight file '{checkpoint}' not exist !!!")
