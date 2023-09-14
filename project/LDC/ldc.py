@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms as T
+from typing import Tuple
+
 import pdb
 
 def weight_init(m):
@@ -55,12 +57,21 @@ class _DenseLayer(nn.Sequential):
                                            kernel_size=3, stride=1, bias=True)),
         self.add_module('norm2', nn.BatchNorm2d(out_features))
 
-    def forward(self, x):
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        # to support torch.jit.script
+        # x1, x2 = x
+        # new_features = super(_DenseLayer, self).forward(F.relu(x1))  # F.relu()
+        # return 0.5 * (new_features + x2), x2
+
         x1, x2 = x
+        n = F.relu(x1)
+        n = self.conv1(n)
+        n = self.norm1(n)
+        n = self.relu1(n)
+        n = self.conv2(n)
+        n = self.norm2(n)
+        return 0.5 * (n + x2), x2
 
-        new_features = super(_DenseLayer, self).forward(F.relu(x1))  # F.relu()
-
-        return 0.5 * (new_features + x2), x2
 
 class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, input_features, out_features):
@@ -69,6 +80,12 @@ class _DenseBlock(nn.Sequential):
             layer = _DenseLayer(input_features, out_features)
             self.add_module('denselayer%d' % (i + 1), layer)
             input_features = out_features
+
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor])->Tuple[torch.Tensor, torch.Tensor]:
+        # to support torch.jit.script
+        for layer in self:
+            x = layer(x)
+        return x
 
 class UpConvBlock(nn.Module):
     def __init__(self, in_features, up_scale):
@@ -201,14 +218,14 @@ class LDC(nn.Module):
 
         # Block 3
         block_3_pre_dense = self.pre_dense_3(block_2_down) # [8,64,88,88] block 3 L connection
-        block_3, _ = self.dblock_3([block_2_add, block_3_pre_dense]) # [8,64,88,88]
+        block_3, _ = self.dblock_3((block_2_add, block_3_pre_dense)) # [8,64,88,88]
         block_3_down = self.maxpool(block_3) # [8,64,44,44]
         block_3_add = block_3_down + block_2_side # [8,64,44,44]
 
         # Block 4
         block_2_resize_half = self.pre_dense_2(block_2_down) # [8,64,44,44]
         block_4_pre_dense = self.pre_dense_4(block_3_down+block_2_resize_half) # [8,96,44,44]
-        block_4, _ = self.dblock_4([block_3_add, block_4_pre_dense]) # [8,96,44,44]
+        block_4, _ = self.dblock_4((block_3_add, block_4_pre_dense)) # [8,96,44,44]
 
 
         # upsampling blocks
