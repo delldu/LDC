@@ -10,6 +10,30 @@ from typing import Tuple
 
 import pdb
 
+# Below comes from https://github.com/jocpae/clDice
+def soft_erode(img):
+    p1 = -F.max_pool2d(-img, (3,1), (1,1), (1,0))
+    p2 = -F.max_pool2d(-img, (1,3), (1,1), (0,1))
+    return torch.min(p1,p2)
+
+def soft_dilate(img):
+    return F.max_pool2d(img, (3,3), (1,1), (1,1))
+
+def soft_open(img):
+    return soft_dilate(soft_erode(img))
+
+
+def soft_skel(img, n: int):
+    img1 = soft_open(img)
+    skel =  F.relu(img - img1)
+    for j in range(n):
+        img  =  soft_erode(img)
+        img1  =  soft_open(img)
+        delta  =  F.relu(img - img1)
+        skel  =  skel +  F.relu(delta - skel*delta)
+    return skel
+
+
 def weight_init(m):
     if isinstance(m, (nn.Conv2d,)):
         torch.nn.init.xavier_normal_(m.weight, gain=1.0)
@@ -245,17 +269,29 @@ class LDC(nn.Module):
         out_4 = torch.sigmoid(out_4)
         block_cat = torch.sigmoid(block_cat)
 
-        output = torch.cat([out_1, out_2, out_3, out_4, block_cat], dim = 1)
-
-        output = output.mean(dim=1, keepdim=True)
+        # output = torch.cat([out_1, out_2, out_3, out_4, block_cat], dim = 1)
+        # output = output.mean(dim=1, keepdim=True)
+        output = torch.sigmoid(block_cat)
 
         # Convert BGR to RGB !!!
         # output is Bx1xHxW, so no need convert channels
+        output = (output - output.min())/(output.max() - output.min() + 1e-5)
+        output = soft_skel(output, 3)
+        output = (output - output.min())/(output.max() - output.min() + 1e-5)
+
+        # kernel_size = 3
+        # kernel = output.new_ones((1, 1, kernel_size, kernel_size))/(kernel_size * kernel_size)
+        # output = F.conv2d(1.0 - output, kernel, stride=1, padding=kernel_size//2)
+        # output = output.clamp(0.0, 0.9)
+        # output = F.conv2d(output, kernel, stride=1, padding=kernel_size//2)
+        # output = output.clamp(0.0, 0.9)
+        # output = F.conv2d(output, kernel, stride=1, padding=kernel_size//2)
+        # output = output.clamp(0.0, 0.9)
+        # output = F.conv2d(output, kernel, stride=1, padding=kernel_size//2)
+        # output = 1.0 - output
 
         output = F.interpolate(output, size=(H, W), mode="bilinear", align_corners=True)
-
-        output = (output - output.min())/(output.max() - output.min() + 1e-5)
-        output = (output >= 0.5).to(torch.float32)
+        # output = (output >= 0.25).to(torch.float32)
 
         return output
 
